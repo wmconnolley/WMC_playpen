@@ -39,11 +39,19 @@ symbol rLiftPos = b6    '
 
 '
 
+
+'Main code entry point.
+'
 main:
+' Begin by dropping the lift to the ground floor.
 high MTRD
-if sr1a = 0 then goto main
+loop_ground_floor:
+if sr1a = 0 then goto loop_ground_floor
+' Now we're at ground, turn the motor off, and head off to the main working loop, "lift".
 low MTRD
 goto lift
+
+
 
 nope:
 sound SND,(50,100)
