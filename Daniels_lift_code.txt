@@ -53,6 +53,7 @@ goto lift
 
 
 
+' Does this really belong here?
 nope:
 sound SND,(50,100)
 goto lift
