@@ -1,7 +1,7 @@
 'General note: floors are numbered ascending, so the bottom floor is floor 1.
 'Components are numbered accordingly, i.e LED1 is the LED on the bottom floor.
 
-'
+'These assign output pins and variables in the chip memory to text strings for easy identification
 symbol LED3 = B.7    'LED's for each floor.
 symbol LED2 = B.6    '"high" to turn on, "low" to turn off.
 symbol LED1 = B.5    '___
@@ -29,227 +29,183 @@ symbol MTRD = B.2    'likewise to make the lift go down. note that if both pins 
 
 symbol liftPos = b0  'What floor the lift is at (1-3, value of 0 indicates no match)
 symbol VRBLread = b1 'raw data from the variable reistor (0-255)
+symbol mode = b2     'what control mode the lift is currently in
+symbol timeCheck = b3'Used to count how long a button has  been pressed for
 
 'These variables are used in manual control. note that they do not use the same scale as the basic liftPos.
-symbol sLiftPos = b2    'What position the lift is meant to be at (setLiftPos)
-symbol tLiftPos = b3    'What position the lift is estimated to be at (theoreticalLiftPos)
-symbol aLiftPosMin = b4 'The lowest the lift can be (actualLiftPosMin)
-symbol aLiftPosMax = b5 'The highest the lift can be (actualLiftPosMax)
-symbol rLiftPos = b6    '
+'symbol sLiftPos = b5    'What position the lift is meant to be at (setLiftPos)
+'symbol tLiftPos = b6    'What position the lift is estimated to be at (theoreticalLiftPos)
+'symbol aLiftPosMin = b7 'The lowest the lift can be (actualLiftPosMin)
+'symbol aLiftPosMax = b8 'The highest the lift can be (actualLiftPosMax)
 
-'
+'The main code that controls the lift
 
+initiate:
+write mode,0
 
-'Main code entry point.
-'
 main:
-' Begin by dropping the lift to the ground floor.
-high MTRD
-loop_ground_floor:
-if sr1a = 0 then goto loop_ground_floor
-' Now we're at ground, turn the motor off, and head off to the main working loop, "lift".
-low MTRD
-goto lift
+if BTNM = 0 then
+  if mode = 1 then
+    write mode,0
+  else
+    inc mode
+  endif
+  write timeCheck,0
+  mainWait:
+  pause 10
+  inc timeCheck
+  if timecheck > 200 then
+    write mode,0
+    high LED1,LED2,LED3
+    pause 100
+    low LED1,LED2,LED3
+  endif
+  if BTNM = 0 and timeCheck < 201 then goto mainWait
+endif
+if mode = 0 then
+  gosub liftControl
+elseif mode = 1 then
+  gosub manual
+endif  
 
-
-
-' Does this really belong here?
-nope:
-sound SND,(50,100)
-goto lift
-
-lift:
-if BTN1 = 0 then goto lift1
-if BTN2 = 0 then goto lift2
-if BTN3 = 0 then goto lift3
-readADC VRBL,VRBLread
-'if b1 < 4 then goto manual
-goto lift
-
-posCheck:
-write liftpos,0
-if SR1a = 1 and SR1b = 1 then write liftPos,1
-elseif SR2a = 1 and SR2b = 1 then write liftPos,2
-elseif SR3a = 1 and SR3b = 1 then write liftPos,3
+liftControl:
+gosub poscheck
+if BTN1 = 0 and liftPos != 1 then
+  low LED1,LED2,LED3
+  gosub lift1
+  gosub floor
+elseif BTN2 = 0 and liftPos !=  2 then
+  low LED1,LED2,LED3
+  gosub lift2
+  gosub floor
+elseif BTN3 = 0 and liftPos !=  3 then
+  low LED1,LED2,LED3
+  gosub lift3
+  gosub floor
 endif
 return
+
+manual:
+
+'Subroutines
 
 lift1:
-gosub posCheck
-If liftPos = 1 then goto nope
-if liftPos = 2 then
-  sound SND,(75,50)
-  pause 25
-  sound SND,(100,50)
-elseif liftPos = 3 then
-  sound SND,(50,50)
-  pause 25
-  sound SND,(100,50)
+high MTRD
+if SR1a = 1 or SR1b = 1 then
+  low MTRD
+  gosub liftAlign1
+  if liftPos = 1 then return endif
 endif
-low LED1, LED2, LED3
-gosub lift1M
-sound SND,(50,50)
-pause 25
-sound SND,(50,50)
-goto floor
+goto lift1
 
-lift1M:
-high MTRD
-if SR1b = 0 then goto lift1M
-lift1S:
-readADC VRBL,VRBLread
-high MTRD
-pause VRBLread
-low MTRD
-if SR1a = 0 then goto lift1S
-return
-
-Lift2:
-gosub posCheck
-if liftPos = 2 then goto nope
-if liftpos = 1 then
-  sound SND,(50,50)
-  pause 25
-  sound SND,(75,50)
-  low LED1, LED2, LED3
-  gosub Lift2u
-elseif liftpos = 3 then
-  sound SND,(100,50)
-  pause 25
-  sound SND,(75,50)
-  low LED1, LED2, LED3
-  gosub Lift2d
+lift2:
+if SR2a = 1 or SR2b = 1 then
+  low MTRU,MTRD
+  gosub liftAlign2
+  if liftPos = 2 then return endif
+elseif SR1a = 1 or SR1b = 1 then
+  high MTRU
+elseif SR3a = 1 or SR3b = 1 then
+  high MTRD
 endif
-  sound SND,(75,50)
-  pause 25
-  sound SND,(75,50)
-goto floor
-
-Lift2u:
-high MTRU
-if SR2b = 0 then goto Lift2u
-Lift2uS:
-high MTRU
-pause 1
-low MTRU
-if SR2a = 0 then goto Lift2uS
-return
-
-Lift2d:
-high MTRD
-if SR2a = 0 then goto Lift2d
-Lift2dS:
-high MTRD
-pause 1
-low MTRD
-if SR2b = 0 then goto Lift2dS
-return
+goto lift2
 
 lift3:
-gosub posCheck
-If liftPos = 3 then goto nope
-if liftPos = 1 then
-  sound SND,(50,50)
-  pause 25
-  sound SND,(100,50)
-elseif liftPos = 2 then
-  sound SND,(75,50)
-  pause 25
-  sound SND,(100,50)
+high MTRU
+if SR3a = 1 or SR3b = 1 then
+  low MTRU
+  gosub liftAlign3
+  if liftPos = 3 then return endif
 endif
-low LED1, LED2, LED3
-gosub lift3M
-  sound SND,(100,50)
-  pause 25
-  sound SND,(100,50)
-goto floor
+goto lift3
 
-lift3M:
-high MTRU
-if SR3b = 0 then goto lift3M
-lift3S:
-high MTRU
-pause 1
-low MTRU
-if SR3a = 0 then goto lift3S
+errorSub:
+sound SND,(50,500)
+gosub lift1
 return
 
 floor:
-gosub posCheck
-if liftPos = 1 then
+select liftPos
+case 1
   high LED1
   sound SND,(50,50)
   pause 25
   sound SND,(50,50)
-elseif liftPos = 2 then
+case 2
   high LED2
   sound SND,(75,50)
   pause 25
   sound SND,(75,50)
-elseif liftPos = 3 then
+case 3
   high LED3
   sound SND,(100,50)
   pause 25
   sound SND,(100,50)
-endif
-goto lift
+case 0
+  gosub posCheck
+  if liftPos = 0 then gosub errorSub
+  goto floor
+endselect
+return
 
-manual:
-readADC VRBL,VRBLread
-if VRBLread < 10 then goto lift
-sLiftPos = VRBLread - 15
-gosub aLiftPos
-if tLiftPos < aLiftPosMin then write tLiftPos,aLiftPosMin
-elseif tLiftPos > aLiftPosMax then write tLiftPos,aLiftPosMax
-endif
-if tLiftPos < sLiftPos then high MTRU low MTRD inc tLiftPos
-elseif tLiftPos > sLiftPos then low MTRU high MTRD dec tLiftPos
-elseif tLiftPos = sLiftPos then low MTRU low MTRD
-endif
-if BTNM = 0 then goto autoFloor
-if BTN1 = 0 then goto manualFloor1
-if BTN2 = 0 then goto manualFloor2
-if BTN3 = 0 then goto manualFloor3
-goto manual
-
-autoFloor:
-if sLiftPos < 60 then
-gosub lift1M
-elseif sLiftPos < 120 then gosub lift2u
-elseif sLiftPos < 180 then gosub lift2d
-elseif sLiftPos < 240 then gosub lift3M
-endif
-write rLiftPos,sLiftPos
-gosub posCheck
-if liftPos = 1 then high LED1 endif
-if liftPos = 2 then high LED2 endif
-if liftPos = 3 then high LED3 endif
-autoCheck:
-readADC VRBL,VRBLread
-sLiftPos = VRBLread - 15
-if BTNM = 1 then goto autoReturn
-if rLiftPos = sLiftPos then goto autoCheck
-autoReturn:
-low LED1,LED2,LED3
-goto manual
-
-manualFloor1:
-gosub lift1M
-high LED1
-
-manualFloor2:
-
-manualFloor3:
-
-aLiftPos:
-if SR1a = 1 then write aliftPosMin,0 write aliftPosMax,0
-elseif SR1a = 0 and SR1b = 1 and SR2b = 0 then write aliftPosMin,1 write aliftPosMax,19
-elseif SR1b = 1 and SR2a = 1 then write aliftPosMin,20 write aliftPosMax,100
-elseif SR1b = 0 and SR2a = 1 and SR2b = 0 then write aliftPosMin,101 write aliftPosMax,119
-elseif SR2a = 1 and SR2b = 1 then write aliftPosMin,120 write aliftPosMax,120
-elseif SR2a = 0 and SR2b = 1 and SR3a = 0 then write aliftPosMin,121 write aliftPosMax,139
-elseif SR2b = 1 and SR3a = 1 then write aliftPosMin,140 write aliftPosMax,220
-elseif SR2b = 0 and SR3a = 1 and SR3b = 0 then write aliftPosMin,221 write aliftPosMax,239
-elseif SR3b = 1 then write aliftPosMin,240 write aliftPosMax,240
+posCheck:
+write liftpos,0
+if SR1a = 1 and SR1b = 1 then
+  write liftPos,1
+elseif SR2a = 1 and SR2b = 1 then
+  write liftPos,2
+elseif SR3a = 1 and SR3b = 1 then
+  write liftPos,3
 endif
 return
+
+liftAlign1:
+if SR1a = 1 and SR1b = 0 then
+  high MTRU
+  pause 1
+  low MTRU
+  goto liftAlign1
+elseif SR1a = 0 and SR1b = 1 then
+  high MTRD
+  pause 1
+  low MTRD
+  goto liftAlign1
+else
+  low MTRU,MTRD
+  gosub posCheck
+  return
+endif
+
+liftAlign2:
+if SR2a = 1 and SR2b = 0 then
+  high MTRU
+  pause 1
+  low MTRU
+  goto liftAlign2
+elseif SR2a = 0 and SR2b = 1 then
+  high MTRD
+  pause 1
+  low MTRD
+  goto liftAlign2
+else
+  low MTRU,MTRD
+  gosub posCheck
+  return
+endif
+
+liftAlign3:
+if SR3a = 3 and SR3b = 0 then
+  high MTRU
+  pause 1
+  low MTRU
+  goto liftAlign3
+elseif SR3a = 0 and SR3b = 3 then
+  high MTRD
+  pause 1
+  low MTRD
+  goto liftAlign3
+else
+  low MTRU,MTRD
+  gosub posCheck
+  return
+endif
