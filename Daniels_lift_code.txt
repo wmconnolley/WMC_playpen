@@ -30,75 +30,342 @@ symbol MTRD = B.2    'likewise to make the lift go down. note that if both pins 
 symbol liftPos = b0  'What floor the lift is at (1-3, value of 0 indicates no match)
 symbol VRBLread = b1 'raw data from the variable reistor (0-255)
 symbol mode = b2     'what control mode the lift is currently in
+symbol timeCheck = b3'Used to count how long a button has  been pressed for
+symbol setSound = b4 'Remembers whether or not sound is active (0 = active, 1 = inactive)
+symbol progStat = b5 'Used to keep track of what part of the code the lift is executing, for debugging
 
 'These variables are used in manual control. note that they do not use the same scale as the basic liftPos.
-'symbol sLiftPos = b5    'What position the lift is meant to be at (setLiftPos)
-'symbol tLiftPos = b6    'What position the lift is estimated to be at (theoreticalLiftPos)
-'symbol aLiftPosMin = b7 'The lowest the lift can be (actualLiftPosMin)
-'symbol aLiftPosMax = b8 'The highest the lift can be (actualLiftPosMax)
-'symbol rLiftPos = b9    '
+symbol tLiftPos = b6 '(Theoretical lift position)
 
 'The main code that controls the lift
 
+initiate:
+high LED1
+pause 100
+high LED2
+pause 100
+high LED3
+pause 100
+low LED1
+pause 100
+low LED2
+pause 100
+low LED3
+gosub posCheck
+select liftPos
+case 1
+  let tLiftPos = 0
+case 2,0
+  let tLiftPos = 127
+case 3
+  let tLiftPos = 255
+endselect
+let mode = 0
+
 main:
+'write progstat,0
+if BTNM = 0 then
+  if mode = 2 then
+    let mode = 0
+  else
+    inc mode
+  endif
+  mainWait:
+  select mode
+  case 0
+    high LED1
+  case 1
+    high LED2
+  case 2
+    high LED3
+  endselect
+  if BTN3 =0 then
+    gosub options
+  endif
+  if BTNM = 0 then mainWait
+  low LED1,LED2,LED3
+endif
+if mode = 0 then
+  gosub liftControl
+elseif mode = 1 then
+  gosub basicManual
+elseif mode = 2 then
+  gosub advManual
+endif
+goto main
+
+options:
+if BTN3 = 0 then
+  high LED3
+  if BTNM = 1 then
+    return
+  endif
+elseif BTN1 = 0 then
+  high LED1
+  if setSound = 0 then
+    inc setSound
+  elseif setsound = 1 then
+    dec setSound
+    sound SND,(75,100)
+  endif
+  optionsWait:
+  if BTN1 = 0 then optionsWait
+elseif BTN2 = 0 then
+  high LED2
+  gosub speedSet
+endif
+if BTN1 = 1 then
+  low LED1
+endif
+if BTN2 = 1 then
+  low LED2
+endif
+if BTN3 = 1 then
+  low LED3
+endif
+goto options
+
+speedSet:
+return
+
+liftControl:
+'write progstat,1
+'debug
+gosub poscheck
+if BTN1 = 0 and liftPos != 1 then
+  low LED1,LED2,LED3
+  gosub lift1
+  gosub floor
+elseif BTN2 = 0 and liftPos !=  2 then
+  low LED1,LED2,LED3
+  gosub lift2
+  gosub floor
+elseif BTN3 = 0 and liftPos !=  3 then
+  low LED1,LED2,LED3
+  gosub lift3
+  gosub floor
+endif
+return
+
+basicManual:
+gosub posCheck
+if liftPos = 0 then
+  low LED1,LED2,LED3
+endif
+if BTN1 = 0 and BTN2 = 1 then
+  high MTRD
+elseif BTN1  = 1 and  BTN2 = 0 then
+  high MTRU
+else
+  low MTRD,MTRU
+endif
+if BTN3 = 0 then
+  basicWait:
+  gosub nearAlign
+  if liftPos = 0 then goto basicWait
+  gosub floor
+endif
+return
+
+advManual:
+readADC VRBL,VRBLread
+debug
+if tLiftPos < VRBLread then
+high MTRU
+pause 1
+low MTRU
+pause 1
+inc tLiftPos
+elseif tLiftPos > VRBLread then
+high MTRD
+pause 1
+low MTRD
+pause 1
+dec tLiftPos
+elseif  tLiftPos = VRBLread then
+gosub posCheck
+'gosub floor
+endif
+return
 
 'Subroutines
 
+lift1:
+'write progstat,2
+'debug
+if SR1a = 1 or SR1b = 1 then
+  low MTRD
+  gosub liftAlign1
+  if liftPos = 1 then
+    return
+  endif
+else
+  high MTRD
+endif
+goto lift1
+
+lift2:
+if BTNM = 0 then
+  return
+endif
+'write progstat,3
+'debug
+if SR2a = 1 or SR2b = 1 then
+  low MTRU,MTRD
+  gosub liftAlign2
+  if liftPos = 2 then
+    pause 100
+    gosub posCheck
+    if liftPos != 2 then goto lift2
+    return
+  endif
+elseif SR1a = 1 or SR1b = 1 then
+  high MTRU
+elseif SR3a = 1 or SR3b = 1 then
+  if SR2a = 0 and SR2b = 0 then
+    high MTRD
+  endif
+endif
+goto lift2
+
+lift3:
+'write progstat,4
+'debug
+if SR3a = 1 or SR3b = 1 then
+  low MTRU
+  gosub liftAlign3
+  if liftPos = 3 then
+    return
+  endif
+else
+  high MTRU
+endif
+goto lift3
+
+errorSub:
+sound SND,(50,500)
+write progstat,255
+debug
+gosub lift1
+return
+
+floor:
+'write progstat,5
+'debug
+select liftPos
+case 1
+  high LED1
+  if setSound = 0 then
+  sound SND,(50,50)
+  pause 25
+  sound SND,(50,50)
+  endif
+case 2
+  high LED2
+  if setSound = 0 then
+  sound SND,(75,50)
+  pause 25
+  sound SND,(75,50)
+  endif
+case 3
+  high LED3
+  if setSound = 0 then
+  sound SND,(100,50)
+  pause 25
+  sound SND,(100,50)
+  endif
+case 0
+endselect
+return
+
 posCheck:
-write liftpos,0
-if SR1a = 1 and SR1b = 1 then write liftPos,1
-elseif SR2a = 1 and SR2b = 1 then write liftPos,2
-elseif SR3a = 1 and SR3b = 1 then write liftPos,3
+'write progstat,6
+'debug
+if SR1a = 1 and SR1b = 1 then
+  let liftPos = 1
+elseif SR2a = 1 and SR2b = 1 then
+  let liftPos = 2
+elseif SR3a = 1 and SR3b = 1 then
+  let liftPos = 3
+else
+  let liftPos = 0
+endif
+return
+
+nearAlign:
+if SR3a = 1 or SR3b = 1 then
+  gosub liftAlign3
+  if liftpos !=  3 then goto nearAlign
+elseif SR1a = 1 or SR1b = 1 then
+  gosub liftAlign1
+  if liftPos != 1 then goto nearAlign
+elseif SR2a = 1 or SR2b = 1 then
+  gosub liftAlign2
+  if liftPos != 2 then goto nearAlign
 endif
 return
 
 liftAlign1:
+'write progstat,7
+'debug
 if SR1a = 1 and SR1b = 0 then
-high MTRU
-pause 1
-low MTRU
-goto liftAlign1
+  high MTRU
+  pause 1
+  low MTRU
+  pause 1
+  goto liftAlign1
 elseif SR1a = 0 and SR1b = 1 then
-high MTRD
-pause 1
-low MTRD
-goto liftAlign1
+  high MTRD
+  pause 1
+  low MTRD
+  goto liftAlign1
 else
-low MTRU,MTRD
-gosub posCheck
-return
+  low MTRU,MTRD
+  gosub posCheck
+  return
 endif
 
 liftAlign2:
+if BTNM = 0 then
+  return
+endif
+'write progstat,8
+'debug
 if SR2a = 1 and SR2b = 0 then
-high MTRU
-pause 1
-low MTRU
-goto liftAlign2
+    high MTRU
+    pause 1
+    low MTRU
+    pause 2
+    goto liftAlign2
 elseif SR2a = 0 and SR2b = 1 then
-high MTRD
-pause 1
-low MTRD
-goto liftAlign2
+    high MTRD
+    pause 1
+    low MTRD
+    pause 1
+    goto liftAlign2
 else
-low MTRU,MTRD
-gosub posCheck
-return
+  low MTRU,MTRD
+  gosub posCheck
+  return
 endif
 
 liftAlign3:
-if SR3a = 3 and SR3b = 0 then
-high MTRU
-pause 1
-low MTRU
-goto liftAlign3
-elseif SR3a = 0 and SR3b = 3 then
-high MTRD
-pause 1
-low MTRD
-goto liftAlign3
+'write progstat,9
+'debug
+if SR3a = 1 and SR3b = 0 then
+  high MTRU
+  pause 1
+  low MTRU
+  pause 3
+  goto liftAlign3
+elseif SR3a = 0 and SR3b = 1 then
+  high MTRD
+  pause 1
+  low MTRD
+  pause 3
+  goto liftAlign3
 else
-low MTRU,MTRD
-gosub posCheck
-return
+  low MTRU,MTRD
+  gosub posCheck
+  return
 endif
